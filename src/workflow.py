@@ -5,6 +5,8 @@ from groq import Groq
 from langchain_groq import ChatGroq
 from langgraph.graph import END, START, StateGraph
 
+
+from src.db import save_application_log
 from src.applier import run_form_applier
 from src.matcher import analyze_job_match
 from src.state import AgentState
@@ -43,21 +45,21 @@ def matcher_node(state: AgentState) -> dict:
 
 
 def applier_node(state: AgentState) -> dict:
-    print(
-        "\n--- [Node 2: Browser Autopilot] Initializing Playwright Form Filler ---"
-    )
-    return run_form_applier(state)
+    print("\n--- [Node 2: Browser Autopilot] Initializing Playwright Form Filler ---")
+    res = run_form_applier(state)
+    state.update(res)
+    save_application_log(state)
+    return res
 
 
 def skip_job_node(state: AgentState) -> dict:
     analysis = state.get("match_analysis")
     score = analysis.match_score if analysis else 0
-    print(
-        f"\n--- [Node: Skip Job] Match Score: {score}% (Below threshold) ---"
-    )
-    print(f"Skipping application for: {state['raw_job'].title}")
-    return {"application_status": "SKIPPED_LOW_MATCH"}
-
+    print(f"\n--- [Node: Skip Job] Match Score: {score}% (Below threshold) ---")
+    res = {"application_status": "SKIPPED_LOW_MATCH"}
+    state.update(res)
+    save_application_log(state)
+    return res
 
 def route_by_match_score(
     state: AgentState,
