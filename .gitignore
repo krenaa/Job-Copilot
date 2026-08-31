@@ -19,3 +19,4 @@ scouted_jobs.json
 .playwright/
 .DS_Store
 Thumbs.db
+*.db
