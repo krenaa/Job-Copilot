@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
@@ -22,9 +22,20 @@ class TailoredResume(BaseModel):
     tailored_bullet_points: List[str]
 
 
+class FormSubmissionDetails(BaseModel):
+    full_name: str
+    email: str
+    phone: str
+    linkedin_url: str
+    github_url: str
+    portfolio_url: str
+    cover_letter: str
+
+
 class AgentState(TypedDict):
     raw_job: JobPost
     candidate_profile: dict
     match_analysis: Optional[TailoredResume]
+    form_details: Optional[FormSubmissionDetails]
     application_status: str
     error_logs: List[str]
