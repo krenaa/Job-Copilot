@@ -5,14 +5,14 @@ from src.state import AgentState, FormSubmissionDetails
 
 
 async def fill_application_form(
-    apply_url: str, form_data: FormSubmissionDetails, headless: bool = False
+    apply_url: str, form_data: FormSubmissionDetails, headless: bool = True
 ) -> bool:
     """Automates form detection and entry using Playwright."""
     print(f"[*] Launching browser for application portal: {apply_url}")
 
     async with async_playwright() as p:
-        # Launch non-headless browser so user can review the filled form
-        browser = await p.chromium.launch(headless=headless, slow_mo=100)
+        # Launch browser
+        browser = await p.chromium.launch(headless=headless, slow_mo=50)
         context = await browser.new_context()
         page = await context.new_page()
 
@@ -21,7 +21,7 @@ async def fill_application_form(
                 apply_url, wait_until="domcontentloaded", timeout=45000
             )
 
-            # Common selector heuristics for ATS platforms (Lever, Greenhouse, etc.)
+            # Standard selector mappings
             field_mappings = [
                 (
                     [
@@ -81,11 +81,7 @@ async def fill_application_form(
                         print(f"  [+] Filled field matched by '{selector}'")
                         break
 
-            print(
-                "[*] Form pre-filled successfully. Pausing for human verification..."
-            )
-            # Give time for inspection during local testing
-            await asyncio.sleep(3)
+            print("[*] Form pre-filled successfully.")
             await browser.close()
             return True
 
@@ -96,7 +92,7 @@ async def fill_application_form(
 
 
 def run_form_applier(state: AgentState) -> Dict[str, str]:
-    """LangGraph node wrapper for application filling."""
+    """LangGraph node wrapper for application filling with nested event loop safety."""
     profile = state["candidate_profile"]
     analysis = state.get("match_analysis")
 
@@ -116,13 +112,33 @@ def run_form_applier(state: AgentState) -> Dict[str, str]:
         cover_letter=cover_note,
     )
 
-    success = asyncio.run(
-        fill_application_form(
-            apply_url=state["raw_job"].apply_url,
-            form_data=form_data,
-            headless=True,
+    # Safe coroutine execution regardless of whether an event loop is already running
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        # Running inside an active loop (FastAPI/Uvicorn)
+        import nest_asyncio
+
+        nest_asyncio.apply()
+        success = loop.run_until_complete(
+            fill_application_form(
+                apply_url=state["raw_job"].apply_url,
+                form_data=form_data,
+                headless=True,
+            )
         )
-    )
+    else:
+        # Running standalone
+        success = asyncio.run(
+            fill_application_form(
+                apply_url=state["raw_job"].apply_url,
+                form_data=form_data,
+                headless=True,
+            )
+        )
 
     if success:
         return {
