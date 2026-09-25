@@ -1,0 +1,52 @@
+Project: Resume Gap Analyzer
+One-line pitch
+
+An agent that compares a job description against a resume and returns a clear gap list — what's missing, what's weak, what's a strong match — using a human-in-the-loop check before finalizing output.
+
+Why this exists
+
+Built to use during an active job search: paste a JD, paste a resume, get a structured gap analysis instead of guessing what to tweak per application.
+
+Hard scope — do not exceed this
+
+This is a 1-day build. Every item below is IN. Nothing else gets added until this list is fully done and tested.
+
+In scope
+Input
+Two text boxes: paste job description, paste resume text.
+No file upload. No parsing PDFs/DOCX. Plain text only.
+LangGraph flow
+Node 1 — Extract requirements: pull required skills/keywords/experience from the JD.
+Node 2 — Extract candidate profile: pull actual skills/experience from the resume text.
+Node 3 — Compare: produce three buckets — Missing, Weak (mentioned once / no project backing it), Strong (clear match).
+interrupt() before final output — human-in-the-loop confirmation step (same HITL pattern as AmbientAI), so the user can adjust before the result is finalized.
+Output
+Plain structured list grouped into Missing / Weak / Strong.
+No scoring, no percentages, no fancy formatting — a readable list is enough.
+UI
+Simple Streamlit form OR a basic React form. Whichever is faster to wire up today. No styling pass.
+README
+Why it was built, one screenshot, one example run (real JD + real resume, anonymized if needed).
+Explicitly OUT of scope — do not build these today
+No auth / login.
+No saved history or database of past runs.
+No multi-resume comparison.
+No file upload / PDF parsing.
+No deployment (get it working locally first; deploy later if time allows).
+No UI polish beyond making it usable.
+No extra "nice to have" features once the above is working — if time remains, improve the README, not the scope.
+Tech stack (reuse what's already known — nothing new to learn under time pressure)
+LangGraph (StateGraph + interrupt() for HITL, same pattern as AmbientAI)
+FastAPI backend (if using React) or plain Streamlit app (if going that route — pick one, don't build both)
+LLM: Groq primary / Gemini fallback (same as AmbientAI setup)
+No database required for v1 — state can be in-memory for a single session
+Definition of done
+ Can paste a JD and a resume and get a Missing / Weak / Strong list back
+ interrupt() HITL step works — user can review before final output
+ Runs locally end to end without errors
+ README has: why it exists, 1 screenshot, 1 example run
+ No scope creep beyond this file
+Rules while building (carry over from past projects)
+Read and understand every AI-generated patch before accepting it — do not accept changes blindly.
+If a bug appears, fix that specific bug — do not let one fix cascade into rewriting unrelated code.
+If something isn't in this file, it doesn't get built today.
