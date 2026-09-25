@@ -1,21 +1,19 @@
-from typing import Any, Dict, List, Optional
-from celery.result import AsyncResult
+import uuid
+from typing import Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from langgraph.types import Command
 
-from src.db import JobApplicationRecord, SessionLocal
-from src.state import AgentState, FormSubmissionDetails, JobPost, TailoredResume
-from src.tasks import celery_app, dispatch_job_application
-from src.workflow import build_agent_graph
+from src.state import AgentState, GapAnalysisResult, InputState
+from src.workflow import build_gap_analyzer_graph
 
 app = FastAPI(
-    title="Career Copilot AI Agent",
-    description="Autonomous job application agent with LangGraph and Playwright",
+    title="Resume Gap Analyzer Agent",
+    description="LangGraph Human-in-the-Loop Resume vs JD Gap Analysis API",
     version="1.0.0",
 )
 
-# Enable CORS for Next.js Generative UI frontend integration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,131 +22,87 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Compile LangGraph state machine once on startup
-agent_app = build_agent_graph()
+# In-memory graph checkpointer
+graph = build_gap_analyzer_graph()
 
 
-class ApplicationRequest(BaseModel):
-    job: JobPost
-    candidate_profile: Dict[str, Any]
+class AnalyzeRequest(BaseModel):
+    job_description_text: str
+    resume_text: str
 
 
-class ApplicationResponse(BaseModel):
-    application_status: str
-    match_analysis: Optional[TailoredResume] = None
-    form_details: Optional[FormSubmissionDetails] = None
-    error_logs: List[str] = []
-
-
-class AsyncTaskResponse(BaseModel):
-    task_id: str
+class AnalyzeResponse(BaseModel):
+    thread_id: str
     status: str
-    message: str
+    proposed_gap: Optional[GapAnalysisResult] = None
+    interrupt_message: Optional[str] = None
 
 
-class TaskStatusResponse(BaseModel):
-    task_id: str
-    state: str
-    result: Optional[Dict[str, Any]] = None
+class ResumeRequest(BaseModel):
+    thread_id: str
+    user_feedback: Optional[str] = ""
+
+
+class FinalResponse(BaseModel):
+    thread_id: str
+    status: str
+    final_output: Optional[GapAnalysisResult] = None
 
 
 @app.get("/health")
 def health_check():
-    """Service health probe."""
-    return {"status": "healthy", "service": "job-agent-core"}
+    return {"status": "healthy", "service": "resume-gap-analyzer"}
 
 
-@app.post("/jobs/apply", response_model=ApplicationResponse)
-def trigger_job_application(payload: ApplicationRequest):
-    """Synchronously executes the LangGraph agent workflow for an individual job."""
+@app.post("/api/analyze", response_model=AnalyzeResponse)
+def start_analysis(payload: AnalyzeRequest):
+    """Starts the LangGraph workflow and runs until the HITL interrupt() step."""
+    thread_id = str(uuid.uuid4())
+    config = {"configurable": {"thread_id": thread_id}}
+
     initial_state: AgentState = {
-        "raw_job": payload.job,
-        "candidate_profile": payload.candidate_profile,
-        "match_analysis": None,
-        "form_details": None,
-        "application_status": "SCOUTED",
-        "error_logs": [],
+        "jd_text": payload.job_description_text,
+        "resume_text": payload.resume_text,
+        "extracted_jd_skills": [],
+        "extracted_candidate_skills": [],
+        "gap_analysis": None,
+        "user_feedback": None,
+        "final_output": None,
     }
 
     try:
-        final_state = agent_app.invoke(initial_state)
-        return ApplicationResponse(
-            application_status=final_state.get("application_status", "UNKNOWN"),
-            match_analysis=final_state.get("match_analysis"),
-            form_details=final_state.get("form_details"),
-            error_logs=final_state.get("error_logs", []),
+        result = graph.invoke(initial_state, config=config)
+        interrupts = result.get("__interrupt__", [])
+        interrupt_msg = (
+            interrupts[0].value.get("message") if interrupts else None
+        )
+
+        return AnalyzeResponse(
+            thread_id=thread_id,
+            status="WAITING_FOR_REVIEW" if interrupts else "COMPLETED",
+            proposed_gap=result.get("gap_analysis"),
+            interrupt_message=interrupt_msg,
         )
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Agent execution failed: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
 
-@app.post("/jobs/apply-async", response_model=AsyncTaskResponse)
-def trigger_job_application_async(payload: ApplicationRequest):
-    """Offloads the application job to Celery & Redis and returns an async tracking ID."""
+@app.post("/api/resume", response_model=FinalResponse)
+def resume_analysis(payload: ResumeRequest):
+    """Resumes the paused graph from the HITL step with user feedback."""
+    config = {"configurable": {"thread_id": payload.thread_id}}
+
     try:
-        job_payload = payload.job.model_dump()
-        task = dispatch_job_application.delay(
-            job_payload, payload.candidate_profile
+        final_result = graph.invoke(
+            Command(resume=payload.user_feedback or ""), config=config
         )
-        return AsyncTaskResponse(
-            task_id=task.id,
-            status="QUEUED",
-            message="Application agent dispatched to background Celery queue.",
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to enqueue task: {str(e)}"
-        )
-
-
-@app.get("/tasks/{task_id}", response_model=TaskStatusResponse)
-def get_task_status(task_id: str):
-    """Polls the status of an asynchronous background agent task from Redis."""
-    try:
-        result = AsyncResult(task_id, app=celery_app)
-        return TaskStatusResponse(
-            task_id=task_id,
-            state=result.state,
-            result=result.result if result.ready() else None,
+        return FinalResponse(
+            thread_id=payload.thread_id,
+            status="FINALIZED",
+            final_output=final_result.get("final_output"),
         )
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to query task status: {str(e)}"
-        )
-
-
-@app.get("/history")
-def get_application_history():
-    """Retrieves all historical application attempts stored in the database."""
-    session = SessionLocal()
-    try:
-        records = (
-            session.query(JobApplicationRecord)
-            .order_by(JobApplicationRecord.created_at.desc())
-            .all()
-        )
-        return [
-            {
-                "id": r.id,
-                "title": r.title,
-                "company": r.company,
-                "apply_url": r.apply_url,
-                "match_score": r.match_score,
-                "application_status": r.application_status,
-                "matched_skills": r.matched_skills,
-                "missing_skills": r.missing_skills,
-                "created_at": r.created_at,
-            }
-            for r in records
-        ]
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Database query failed: {str(e)}"
-        )
-    finally:
-        session.close()
+        raise HTTPException(status_code=500, detail=f"Resume failed: {str(e)}")
 
 
 if __name__ == "__main__":

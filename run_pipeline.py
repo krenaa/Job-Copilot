@@ -1,58 +1,75 @@
-from src.state import AgentState, JobPost
-from src.workflow import build_agent_graph
+import uuid
+from langgraph.types import Command
+from src.state import AgentState
+from src.workflow import build_gap_analyzer_graph
 
 
 def main():
-    print("[*] Compiling LangGraph agent workflow...")
-    app = build_agent_graph()
+    print("==================================================")
+    print("      Resume Gap Analyzer Agent (LangGraph HITL)  ")
+    print("==================================================")
 
-    candidate = {
-        "name": "Krena Patel",
-        "email": "krena.patel@example.com",
-        "phone": "+91 9876543210",
-        "linkedin": "https://linkedin.com/in/krenapatel",
-        "github": "https://github.com/krenaa",
-        "portfolio": "https://krenapatel.dev",
-        "skills": [
-            "Python",
-            "FastAPI",
-            "Docker",
-            "React",
-            "PostgreSQL",
-            "LangGraph",
-            "Playwright",
-        ],
-        "experience": "Built autonomous multi-agent pipelines and full-stack cloud applications.",
-    }
+    graph = build_gap_analyzer_graph()
+    thread_id = str(uuid.uuid4())
+    config = {"configurable": {"thread_id": thread_id}}
 
-    job = JobPost(
-        title="AI Workflow Engineer",
-        company="Shivay Intelligence",
-        description="Build multi-agent workflows using LangGraph, Python, and FastAPI.",
-        apply_url="https://httpbin.org/forms/post",  # Public standard HTML form for safe testing
-        required_skills=["Python", "FastAPI", "LangGraph", "Docker"],
-    )
+    sample_jd = """
+    Position: Senior AI Workflow Engineer
+    Required Skills & Experience:
+    - Python, FastAPI, and LangGraph workflow orchestration.
+    - Containerization and orchestration with Docker and Kubernetes.
+    - Relational databases (PostgreSQL) and cloud infrastructure (AWS).
+    """
+
+    sample_resume = """
+    Candidate: Krena Patel
+    Professional Summary:
+    Full Stack & AI Engineer with 4 years building intelligent applications.
+    Key Achievements:
+    - Engineered asynchronous microservices with Python and FastAPI.
+    - Designed relational schemas and query optimizations in PostgreSQL.
+    - Containerized development and staging pipelines using Docker.
+    - Explored LangGraph for prototype agent pipelines.
+    """
 
     initial_state: AgentState = {
-        "raw_job": job,
-        "candidate_profile": candidate,
-        "match_analysis": None,
-        "form_details": None,
-        "application_status": "SCOUTED",
-        "error_logs": [],
+        "jd_text": sample_jd,
+        "resume_text": sample_resume,
+        "extracted_jd_skills": [],
+        "extracted_candidate_skills": [],
+        "gap_analysis": None,
+        "user_feedback": None,
+        "final_output": None,
     }
 
-    print("\n==========================================")
-    print("Executing End-to-End Autonomous Agent...")
-    print("==========================================")
-    final_state = app.invoke(initial_state)
+    print("\n[*] Phase 1: Analyzing Job Description and Candidate Resume...")
+    step1_result = graph.invoke(initial_state, config=config)
 
-    print("\n--- Final Agent Execution Summary ---")
-    print(f"Final Status: {final_state['application_status']}")
-    print(f"Match Score: {final_state['match_analysis'].match_score}%")
-    print(
-        f"Submitted For: {final_state['raw_job'].title} at {final_state['raw_job'].company}"
-    )
+    interrupts = step1_result.get("__interrupt__", [])
+    if interrupts:
+        print("\n[PAUSE] Execution suspended by LangGraph interrupt()!")
+        gap = step1_result.get("gap_analysis")
+        print("\n--- Proposed Gap Analysis (Pending Human Review) ---")
+        print(f"  [-] Missing: {gap.missing}")
+        print(f"  [~] Weak:    {gap.weak}")
+        print(f"  [+] Strong:  {gap.strong}")
+
+        # Human-in-the-Loop review input
+        print("\n[*] Human-in-the-Loop: Submitting review adjustment...")
+        feedback = "Move Docker to strong; candidate has 3 years production Docker experience"
+        print(f"  Adjustment: '{feedback}'")
+
+        print("\n[*] Phase 2: Resuming graph with user feedback...")
+        final_result = graph.invoke(Command(resume=feedback), config=config)
+        final_output = final_result.get("final_output")
+
+        print("\n==================================================")
+        print("          FINAL CONFIRMED GAP ANALYSIS            ")
+        print("==================================================")
+        print(f"  [-] Missing ({len(final_output.missing)}): {final_output.missing}")
+        print(f"  [~] Weak    ({len(final_output.weak)}): {final_output.weak}")
+        print(f"  [+] Strong  ({len(final_output.strong)}): {final_output.strong}")
+        print("==================================================")
 
 
 if __name__ == "__main__":
