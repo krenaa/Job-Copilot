@@ -4,12 +4,22 @@ import { useState } from "react";
 import {
   AlertCircle,
   ArrowRight,
+  ArrowUpRight,
+  Check,
   CheckCircle2,
+  Coffee,
+  Copy,
+  FileText,
+  Flame,
   HelpCircle,
+  Layers,
   PauseCircle,
   RefreshCw,
+  SlidersHorizontal,
   Sparkles,
+  Trash2,
   UserCheck,
+  Wand2,
   XCircle,
 } from "lucide-react";
 
@@ -32,27 +42,47 @@ interface FinalResponse {
   final_output: GapAnalysisResult | null;
 }
 
-const DEFAULT_JD = `Senior AI Workflow Engineer
-Requirements:
-- Strong proficiency in Python, FastAPI, and LangGraph workflow orchestration.
-- Containerization and orchestration with Docker and Kubernetes.
-- Relational databases (PostgreSQL) and cloud infrastructure (AWS).`;
-
-const DEFAULT_RESUME = `Krena Patel - AI & Backend Engineer
+const PRESET_EXAMPLES = [
+  {
+    name: "AI & LangGraph Engineer",
+    jd: `Senior AI Workflow Engineer
+Role & Responsibilities:
+- Build autonomous multi-agent pipelines and real-time workflows using LangGraph and Python.
+- Containerize and deploy services using Docker and Kubernetes in AWS cloud.
+- Design relational schemas in PostgreSQL and configure Redis caching layers.
+- Implement structured outputs, RAG pipelines, and LLM evaluation benchmarks.`,
+    resume: `Candidate: Krena Patel
+Senior Full-Stack & AI Engineer (4 Years Experience)
 Summary:
-Full Stack & AI Engineer with 4 years building scalable services.
+Built multi-agent systems and high-throughput backend APIs for enterprise clients.
 Key Experience:
-- Engineered asynchronous microservices with Python and FastAPI.
-- Designed relational schemas and query optimizations in PostgreSQL.
+- Engineered asynchronous microservices with Python, FastAPI, and PostgreSQL.
 - Containerized development and staging pipelines using Docker.
-- Explored LangGraph for prototype agent pipelines.`;
+- Explored LangGraph prototypes for ambient AI assistants and agent graphs.
+- Implemented CI/CD pipelines, Git workflows, and automated testing with pytest.`,
+  },
+  {
+    name: "Full Stack React / Node",
+    jd: `Senior Full Stack Developer
+Requirements:
+- 5+ years experience with TypeScript, React, Next.js, and Node.js.
+- Strong proficiency in GraphQL, Tailwind CSS, and PostgreSQL.
+- Experience with Docker, AWS ECS, and CI/CD pipelines.`,
+    resume: `Software Engineer (3 Years)
+- Built modern frontend user interfaces with React, Next.js, and TypeScript.
+- Designed REST APIs with Node.js and Express.
+- Basic familiarity with Docker and relational SQL databases.`,
+  },
+];
 
 export default function ResumeGapAnalyzerPage() {
-  const [jobDescription, setJobDescription] = useState(DEFAULT_JD);
-  const [resumeText, setResumeText] = useState(DEFAULT_RESUME);
+  const [selectedPreset, setSelectedPreset] = useState(0);
+  const [jobDescription, setJobDescription] = useState(PRESET_EXAMPLES[0].jd);
+  const [resumeText, setResumeText] = useState(PRESET_EXAMPLES[0].resume);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   // HITL state
   const [threadId, setThreadId] = useState<string | null>(null);
@@ -62,9 +92,18 @@ export default function ResumeGapAnalyzerPage() {
   // Final Output state
   const [finalOutput, setFinalOutput] = useState<GapAnalysisResult | null>(null);
 
+  const handleSelectPreset = (index: number) => {
+    setSelectedPreset(index);
+    setJobDescription(PRESET_EXAMPLES[index].jd);
+    setResumeText(PRESET_EXAMPLES[index].resume);
+    setHitlReview(null);
+    setFinalOutput(null);
+    setError(null);
+  };
+
   const handleStartAnalysis = async () => {
     if (!jobDescription.trim() || !resumeText.trim()) {
-      setError("Please paste both a Job Description and Resume text.");
+      setError("Please ensure both Job Description and Resume text are provided.");
       return;
     }
 
@@ -74,7 +113,6 @@ export default function ResumeGapAnalyzerPage() {
     setHitlReview(null);
 
     try {
-      // Tries relative /api/analyze (via Next.js rewrite proxy) or direct backend
       let response: Response;
       try {
         response = await fetch("/api/analyze", {
@@ -86,7 +124,6 @@ export default function ResumeGapAnalyzerPage() {
           }),
         });
       } catch {
-        // Fallback to direct localhost:8000
         response = await fetch("http://localhost:8000/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -115,7 +152,7 @@ export default function ResumeGapAnalyzerPage() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(
-        `Failed to run analysis: ${msg}. Please ensure FastAPI backend is running: python -m uvicorn src.api:app --port 8000`
+        `Failed to run analysis: ${msg}. Please ensure FastAPI backend is running on port 8000.`
       );
     } finally {
       setLoading(false);
@@ -154,7 +191,9 @@ export default function ResumeGapAnalyzerPage() {
       }
 
       if (!response.ok) {
-        throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+        throw new Error(
+          `Server returned ${response.status}: ${response.statusText}`
+        );
       }
 
       const data: FinalResponse = await response.json();
@@ -162,10 +201,45 @@ export default function ResumeGapAnalyzerPage() {
       setHitlReview(null);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      setError(`Failed to resume analysis: ${msg}`);
+      setError(`Failed to finalize analysis: ${msg}`);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleQuickMoveSkill = (
+    skill: string,
+    from: "missing" | "weak" | "strong",
+    to: "missing" | "weak" | "strong"
+  ) => {
+    if (!hitlReview) return;
+    const updated = { ...hitlReview };
+    updated[from] = updated[from].filter((s) => s !== skill);
+    if (!updated[to].includes(skill)) {
+      updated[to].push(skill);
+    }
+    setHitlReview(updated);
+
+    const note = `Move ${skill} from ${from} to ${to}`;
+    setUserAdjustment((prev) => (prev ? `${prev}; ${note}` : note));
+  };
+
+  const handleCopyMarkdown = () => {
+    if (!finalOutput) return;
+    const md = `# Resume Gap Analysis Report
+
+## Missing Skills (${finalOutput.missing.length})
+${finalOutput.missing.map((s) => `- ${s}`).join("\n") || "None"}
+
+## Weak Skills (${finalOutput.weak.length})
+${finalOutput.weak.map((s) => `- ${s}`).join("\n") || "None"}
+
+## Strong Skills (${finalOutput.strong.length})
+${finalOutput.strong.map((s) => `- ${s}`).join("\n") || "None"}
+`;
+    navigator.clipboard.writeText(md);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const handleReset = () => {
@@ -177,224 +251,342 @@ export default function ResumeGapAnalyzerPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center py-10 px-4 sm:px-6 lg:px-8 font-sans">
-      {/* Header */}
-      <header className="w-full max-w-5xl mb-8 text-center sm:text-left flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-6 gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-2 justify-center sm:justify-start">
-            <span className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-              <Sparkles className="w-5 h-5" />
-            </span>
-            <h1 className="text-2xl font-bold tracking-tight text-white">
-              Resume Gap Analyzer
-            </h1>
+    <div className="min-h-screen bg-[#FAF7F2] text-stone-900 flex flex-col items-center py-8 px-4 sm:px-6 lg:px-8 font-sans selection:bg-amber-200/60 selection:text-amber-950 relative">
+      {/* Warm Parchment Ambient Radial Glows */}
+      <div className="absolute top-0 left-1/4 w-[550px] h-[350px] bg-amber-200/25 rounded-full blur-[140px] pointer-events-none -z-10" />
+      <div className="absolute top-20 right-1/4 w-[500px] h-[350px] bg-orange-100/30 rounded-full blur-[140px] pointer-events-none -z-10" />
+
+      {/* Top Header */}
+      <header className="w-full max-w-5xl mb-8 flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-[#E7DFD5] gap-4">
+        <div className="flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-2xl bg-[#F0E9DF] border border-[#DDD3C5] flex items-center justify-center text-amber-800 shadow-sm">
+            <Coffee className="w-5 h-5 text-amber-800" />
           </div>
-          <p className="text-sm text-slate-400">
-            Compare target Job Descriptions against candidate resumes with LangGraph Human-in-the-Loop review.
-          </p>
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-stone-900">
+                Resume Gap Analyzer
+              </h1>
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold tracking-wide bg-[#F0EAE1] text-amber-900 border border-[#DDD1C2] shadow-xs">
+                LangGraph HITL
+              </span>
+            </div>
+            <p className="text-xs sm:text-sm text-stone-500 mt-0.5">
+              Artisan technical gap evaluation with Human-in-the-Loop confirmation
+            </p>
+          </div>
         </div>
 
-        {finalOutput && (
-          <button
-            onClick={handleReset}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-sm transition"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Analyze Another Pair
-          </button>
-        )}
+        {/* Status / Reset */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#EFE9DF] border border-[#DDD2C2] text-xs font-medium text-stone-800 shadow-xs">
+            <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
+            <span>Artisan Engine Ready</span>
+          </div>
+
+          {finalOutput && (
+            <button
+              onClick={handleReset}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-white hover:bg-stone-50 border border-stone-200 text-stone-700 rounded-xl text-xs font-semibold shadow-xs transition cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-stone-500" />
+              New Analysis
+            </button>
+          )}
+        </div>
       </header>
 
-      {/* Error Alert */}
+      {/* Error Banner */}
       {error && (
-        <div className="w-full max-w-5xl mb-6 p-4 rounded-xl bg-red-950/40 border border-red-800/60 text-red-300 flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-red-400" />
+        <div className="w-full max-w-5xl mb-6 p-4 rounded-2xl bg-orange-50 border border-orange-200 text-orange-900 flex items-start gap-3 shadow-xs">
+          <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-orange-600" />
           <div className="text-sm leading-relaxed">{error}</div>
         </div>
       )}
 
       {/* Main Container */}
-      <main className="w-full max-w-5xl flex flex-col gap-8">
-        {/* Step 1: Input Textareas (Shown when not in Final state) */}
+      <main className="w-full max-w-5xl flex flex-col gap-6">
+        {/* Step 1: Input Section */}
         {!finalOutput && !hitlReview && (
-          <section className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-xl backdrop-blur-sm">
-            <h2 className="text-lg font-semibold text-slate-200 mb-4 flex items-center gap-2">
-              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold">
-                1
+          <div className="flex flex-col gap-5">
+            {/* Quick Test Scenarios Bar */}
+            <div className="flex items-center justify-between flex-wrap gap-2 px-1">
+              <span className="text-xs font-semibold uppercase tracking-wider text-stone-500 flex items-center gap-1.5">
+                <Wand2 className="w-3.5 h-3.5 text-amber-700" />
+                Quick Test Scenarios:
               </span>
-              Input Job Description & Resume
-            </h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                {PRESET_EXAMPLES.map((ex, i) => (
+                  <button
+                    key={i}
+                    onClick={() => handleSelectPreset(i)}
+                    className={`px-3 py-1 rounded-xl text-xs font-medium transition cursor-pointer border ${
+                      selectedPreset === i
+                        ? "bg-[#EDE5DA] text-amber-950 border-[#D5C7B5] shadow-xs font-semibold"
+                        : "bg-white text-stone-600 border-stone-200 hover:bg-[#F5EFE6] hover:text-stone-900"
+                    }`}
+                  >
+                    {ex.name}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Job Description Textarea */}
-              <div className="flex flex-col gap-2">
-                <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Target Job Description
-                </label>
+            {/* Split Input Panels (Warm Ivory White) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {/* Job Description Panel */}
+              <div className="flex flex-col rounded-2xl bg-white border border-[#E8DFD3] shadow-sm overflow-hidden focus-within:border-amber-500 focus-within:ring-4 focus-within:ring-amber-100/60 transition-all duration-200">
+                <div className="flex items-center justify-between px-4 py-3 bg-[#FAF6F0] border-b border-[#EFE8DD]">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-600" />
+                    <span className="text-xs font-bold uppercase tracking-wider text-stone-700">
+                      Target Job Description
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setJobDescription("")}
+                      title="Clear text"
+                      className="p-1 rounded text-stone-400 hover:text-stone-700 hover:bg-[#EDE5D8] transition"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="text-[11px] font-mono text-stone-400">
+                      {jobDescription.split(/\s+/).filter(Boolean).length} words
+                    </span>
+                  </div>
+                </div>
                 <textarea
-                  rows={9}
+                  rows={12}
                   value={jobDescription}
                   onChange={(e) => setJobDescription(e.target.value)}
-                  placeholder="Paste the target job description requirements here..."
-                  className="w-full p-3.5 bg-slate-950/80 border border-slate-800 rounded-xl text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono resize-y"
+                  placeholder="Paste target job requirements and duties here..."
+                  className="w-full p-4 bg-transparent text-stone-800 text-xs sm:text-sm font-mono leading-relaxed focus:outline-none resize-none placeholder:text-stone-400"
                 />
               </div>
 
-              {/* Resume Textarea */}
-              <div className="flex flex-col gap-2">
-                <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Candidate Resume Text
-                </label>
+              {/* Resume Panel */}
+              <div className="flex flex-col rounded-2xl bg-white border border-[#E8DFD3] shadow-sm overflow-hidden focus-within:border-amber-500 focus-within:ring-4 focus-within:ring-amber-100/60 transition-all duration-200">
+                <div className="flex items-center justify-between px-4 py-3 bg-[#FAF6F0] border-b border-[#EFE8DD]">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-stone-600" />
+                    <span className="text-xs font-bold uppercase tracking-wider text-stone-700">
+                      Candidate Resume
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setResumeText("")}
+                      title="Clear text"
+                      className="p-1 rounded text-stone-400 hover:text-stone-700 hover:bg-[#EDE5D8] transition"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="text-[11px] font-mono text-stone-400">
+                      {resumeText.split(/\s+/).filter(Boolean).length} words
+                    </span>
+                  </div>
+                </div>
                 <textarea
-                  rows={9}
+                  rows={12}
                   value={resumeText}
                   onChange={(e) => setResumeText(e.target.value)}
-                  placeholder="Paste candidate resume or project experience here..."
-                  className="w-full p-3.5 bg-slate-950/80 border border-slate-800 rounded-xl text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono resize-y"
+                  placeholder="Paste candidate experience and projects here..."
+                  className="w-full p-4 bg-transparent text-stone-800 text-xs sm:text-sm font-mono leading-relaxed focus:outline-none resize-none placeholder:text-stone-400"
                 />
               </div>
             </div>
 
-            <div className="mt-6 flex justify-end">
+            {/* Run Button Banner */}
+            <div className="flex items-center justify-end pt-2">
               <button
                 onClick={handleStartAnalysis}
                 disabled={loading}
-                className="flex items-center gap-2 px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm transition shadow-lg shadow-indigo-600/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                className="w-full sm:w-auto relative group overflow-hidden flex items-center justify-center gap-2.5 px-8 py-3.5 rounded-xl bg-gradient-to-r from-amber-700 via-amber-800 to-stone-900 hover:from-amber-800 hover:to-black text-amber-50 font-semibold text-sm tracking-wide shadow-md shadow-amber-950/15 hover:shadow-lg hover:shadow-amber-950/25 transition-all duration-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? (
                   <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    Extracting & Comparing Skills...
+                    <RefreshCw className="w-4 h-4 animate-spin text-amber-100" />
+                    <span>Evaluating Gaps...</span>
                   </>
                 ) : (
                   <>
-                    Run Gap Analysis
-                    <ArrowRight className="w-4 h-4" />
+                    <span>Run Gap Analysis</span>
+                    <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                   </>
                 )}
               </button>
             </div>
-          </section>
+          </div>
         )}
 
-        {/* Step 2: Human-in-the-Loop Review Interruption Modal/Card */}
+        {/* Step 2: Human-in-the-Loop Review Panel (Warm Caramel Bronze) */}
         {hitlReview && !finalOutput && (
-          <section className="bg-slate-900 border border-amber-500/40 rounded-2xl p-6 shadow-2xl relative overflow-hidden">
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 to-indigo-500" />
+          <section className="bg-white border border-amber-300/80 rounded-2xl p-6 sm:p-7 shadow-xl shadow-amber-900/5 relative overflow-hidden">
+            {/* Top Amber Accent Bar */}
+            <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-700" />
 
-            <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
-              <div className="flex items-center gap-2">
-                <PauseCircle className="w-5 h-5 text-amber-400" />
-                <h2 className="text-lg font-bold text-white">
-                  Human-in-the-Loop Confirmation
-                </h2>
+            <div className="flex items-center justify-between flex-wrap gap-3 mb-5">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-100/70 border border-amber-300 flex items-center justify-center text-amber-800">
+                  <PauseCircle className="w-5 h-5 animate-pulse" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-stone-900 flex items-center gap-2">
+                    Human-in-the-Loop Review
+                  </h2>
+                  <p className="text-xs text-stone-500">
+                    Execution paused at <code className="text-amber-900 font-mono bg-amber-50 px-1 py-0.5 rounded border border-amber-200">interrupt()</code>. Click any arrow (<ArrowUpRight className="inline w-3 h-3 text-amber-700" />) to promote, or enter feedback.
+                  </p>
+                </div>
               </div>
-              <span className="px-3 py-1 bg-amber-500/10 text-amber-400 text-xs font-semibold rounded-full border border-amber-500/20">
-                LangGraph interrupt() Paused
+              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-100/80 text-amber-900 border border-amber-300 shadow-xs">
+                Confirmation Required
               </span>
             </div>
 
-            <p className="text-sm text-slate-300 mb-6">
-              The agent has parsed and compared the skills. Review the proposed categorization below before the output is finalized.
-            </p>
-
-            {/* Proposed Buckets Preview */}
+            {/* 3 Columns Preview */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-              {/* Missing */}
-              <div className="p-4 bg-slate-950/60 border border-red-900/40 rounded-xl">
-                <div className="flex items-center gap-1.5 text-red-400 font-semibold text-xs uppercase tracking-wider mb-2">
-                  <XCircle className="w-4 h-4" /> Missing ({hitlReview.missing.length})
+              {/* Missing Skills (Terracotta) */}
+              <div className="p-4 rounded-xl bg-orange-50/70 border border-orange-200 flex flex-col">
+                <div className="flex items-center justify-between mb-3 text-orange-950 text-xs font-bold uppercase tracking-wider">
+                  <span className="flex items-center gap-1.5">
+                    <XCircle className="w-4 h-4 text-orange-700" /> Missing
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-white text-orange-900 text-xs font-semibold border border-orange-200 shadow-xs">
+                    {hitlReview.missing.length}
+                  </span>
                 </div>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-2 flex-grow content-start">
                   {hitlReview.missing.length > 0 ? (
                     hitlReview.missing.map((s, i) => (
-                      <span key={i} className="px-2.5 py-1 bg-red-950/60 border border-red-800/40 text-red-300 text-xs rounded-md">
-                        {s}
-                      </span>
+                      <div
+                        key={i}
+                        className="group flex items-center gap-1.5 px-2.5 py-1 bg-white border border-orange-200 text-orange-900 text-xs font-medium rounded-lg shadow-xs"
+                      >
+                        <span>{s}</span>
+                        <button
+                          onClick={() => handleQuickMoveSkill(s, "missing", "strong")}
+                          title="Promote to Strong"
+                          className="text-orange-400 group-hover:text-emerald-700 hover:scale-110 transition cursor-pointer"
+                        >
+                          <ArrowUpRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     ))
                   ) : (
-                    <span className="text-xs text-slate-500 italic">None</span>
+                    <span className="text-xs text-stone-400 italic py-2">
+                      None detected
+                    </span>
                   )}
                 </div>
               </div>
 
-              {/* Weak */}
-              <div className="p-4 bg-slate-950/60 border border-amber-900/40 rounded-xl">
-                <div className="flex items-center gap-1.5 text-amber-400 font-semibold text-xs uppercase tracking-wider mb-2">
-                  <HelpCircle className="w-4 h-4" /> Weak ({hitlReview.weak.length})
+              {/* Weak Skills (Caramel Bronze) */}
+              <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200 flex flex-col">
+                <div className="flex items-center justify-between mb-3 text-amber-950 text-xs font-bold uppercase tracking-wider">
+                  <span className="flex items-center gap-1.5">
+                    <HelpCircle className="w-4 h-4 text-amber-700" /> Weak
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-white text-amber-900 text-xs font-semibold border border-amber-200 shadow-xs">
+                    {hitlReview.weak.length}
+                  </span>
                 </div>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-2 flex-grow content-start">
                   {hitlReview.weak.length > 0 ? (
                     hitlReview.weak.map((s, i) => (
-                      <span key={i} className="px-2.5 py-1 bg-amber-950/60 border border-amber-800/40 text-amber-300 text-xs rounded-md">
-                        {s}
-                      </span>
+                      <div
+                        key={i}
+                        className="group flex items-center gap-1.5 px-2.5 py-1 bg-white border border-amber-200 text-amber-900 text-xs font-medium rounded-lg shadow-xs"
+                      >
+                        <span>{s}</span>
+                        <button
+                          onClick={() => handleQuickMoveSkill(s, "weak", "strong")}
+                          title="Promote to Strong"
+                          className="text-amber-400 group-hover:text-emerald-700 hover:scale-110 transition cursor-pointer"
+                        >
+                          <ArrowUpRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     ))
                   ) : (
-                    <span className="text-xs text-slate-500 italic">None</span>
+                    <span className="text-xs text-stone-400 italic py-2">
+                      None detected
+                    </span>
                   )}
                 </div>
               </div>
 
-              {/* Strong */}
-              <div className="p-4 bg-slate-950/60 border border-emerald-900/40 rounded-xl">
-                <div className="flex items-center gap-1.5 text-emerald-400 font-semibold text-xs uppercase tracking-wider mb-2">
-                  <CheckCircle2 className="w-4 h-4" /> Strong ({hitlReview.strong.length})
+              {/* Strong Skills (Olive Sage) */}
+              <div className="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200 flex flex-col">
+                <div className="flex items-center justify-between mb-3 text-emerald-950 text-xs font-bold uppercase tracking-wider">
+                  <span className="flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-700" /> Strong
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-white text-emerald-900 text-xs font-semibold border border-emerald-200 shadow-xs">
+                    {hitlReview.strong.length}
+                  </span>
                 </div>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-2 flex-grow content-start">
                   {hitlReview.strong.length > 0 ? (
                     hitlReview.strong.map((s, i) => (
-                      <span key={i} className="px-2.5 py-1 bg-emerald-950/60 border border-emerald-800/40 text-emerald-300 text-xs rounded-md">
-                        {s}
-                      </span>
+                      <div
+                        key={i}
+                        className="flex items-center gap-1.5 px-2.5 py-1 bg-white border border-emerald-200 text-emerald-900 text-xs font-medium rounded-lg shadow-xs"
+                      >
+                        <span>{s}</span>
+                      </div>
                     ))
                   ) : (
-                    <span className="text-xs text-slate-500 italic">None</span>
+                    <span className="text-xs text-stone-400 italic py-2">
+                      None detected
+                    </span>
                   )}
                 </div>
               </div>
             </div>
 
-            {/* Adjustment Input */}
-            <div className="bg-slate-950/80 p-4 rounded-xl border border-slate-800 mb-6">
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                Human Adjustment (Optional)
-              </label>
+            {/* Human Feedback Input */}
+            <div className="bg-[#FAF6F0] border border-[#E9DFD2] p-4 rounded-xl mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-semibold uppercase tracking-wider text-stone-700 flex items-center gap-1.5">
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-amber-700" />
+                  Natural Language Adjustment
+                </label>
+                <span className="text-[11px] text-stone-400 font-mono">Optional</span>
+              </div>
               <input
                 type="text"
                 value={userAdjustment}
                 onChange={(e) => setUserAdjustment(e.target.value)}
-                placeholder="e.g. Move Docker to strong; add PostgreSQL to strong"
-                className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-lg text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder="e.g. Move Docker to strong; candidate has 3 years production Docker experience"
+                className="w-full px-3.5 py-2.5 bg-white border border-stone-300 rounded-lg text-stone-900 text-xs sm:text-sm focus:outline-none focus:border-amber-600 focus:ring-2 focus:ring-amber-100 transition placeholder:text-stone-400"
               />
-              <p className="text-xs text-slate-500 mt-2">
-                Type any correction to override the AI categorizations before finalization.
-              </p>
             </div>
 
-            {/* Actions */}
-            <div className="flex flex-col sm:flex-row items-center justify-end gap-3">
+            {/* Action Buttons */}
+            <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-1">
               <button
                 onClick={() => handleResumeAnalysis("")}
                 disabled={loading}
-                className="w-full sm:w-auto px-5 py-2.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-300 text-sm font-medium transition cursor-pointer"
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl border border-stone-300 hover:bg-[#F5EFE7] text-stone-700 text-xs font-semibold tracking-wide transition cursor-pointer"
               >
                 Approve As Is
               </button>
               <button
                 onClick={() => handleResumeAnalysis()}
                 disabled={loading}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition shadow-md shadow-indigo-600/30 cursor-pointer"
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-amber-800 hover:bg-amber-900 text-amber-50 text-xs font-semibold shadow-md shadow-amber-950/15 transition cursor-pointer"
               >
                 {loading ? (
                   <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    Finalizing...
+                    <RefreshCw className="w-4 h-4 animate-spin text-amber-100" />
+                    <span>Finalizing Output...</span>
                   </>
                 ) : (
                   <>
                     <UserCheck className="w-4 h-4" />
-                    Confirm & Finalize
+                    <span>Confirm & Finalize</span>
                   </>
                 )}
               </button>
@@ -402,100 +594,149 @@ export default function ResumeGapAnalyzerPage() {
           </section>
         )}
 
-        {/* Step 3: Final Output Display */}
+        {/* Step 3: Final Output View (Artisan Cards) */}
         {finalOutput && (
-          <section className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-2xl">
-            <div className="flex items-center justify-between mb-6 border-b border-slate-800 pb-4">
-              <div className="flex items-center gap-2">
-                <span className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+          <section className="bg-white border border-[#E7DED1] rounded-2xl p-6 sm:p-7 shadow-sm">
+            {/* Header Banner */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-5 border-b border-[#EFE8DD] gap-4 mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-800 shadow-xs">
                   <CheckCircle2 className="w-5 h-5" />
-                </span>
-                <div>
-                  <h2 className="text-lg font-bold text-white">Final Confirmed Gap Analysis</h2>
-                  <p className="text-xs text-slate-400">Verified and finalized with human-in-the-loop review</p>
                 </div>
+                <div>
+                  <h2 className="text-xl font-bold text-stone-900 tracking-tight">
+                    Final Confirmed Gap Analysis
+                  </h2>
+                  <p className="text-xs text-stone-500">
+                    Verified through LangGraph Human-in-the-Loop review
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Toolbar */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleCopyMarkdown}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#FAF6F0] hover:bg-[#F2ECE1] border border-[#DDD3C5] text-xs font-medium text-stone-700 transition cursor-pointer shadow-xs"
+                >
+                  {copied ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-700" />
+                      <span className="text-emerald-800 font-semibold">Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 text-stone-500" />
+                      <span>Copy Markdown</span>
+                    </>
+                  )}
+                </button>
               </div>
             </div>
 
-            {/* 3 Result Buckets */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Missing Column */}
-              <div className="bg-slate-950/70 border border-red-900/30 rounded-xl p-5 flex flex-col">
-                <div className="flex items-center justify-between mb-3 border-b border-red-950/60 pb-2">
-                  <span className="flex items-center gap-1.5 text-red-400 font-bold text-sm">
-                    <XCircle className="w-4 h-4" /> Missing
-                  </span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-red-950 text-red-400 font-mono">
+            {/* 3 Artisan Result Columns */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              {/* Missing Column (Terracotta) */}
+              <div className="bg-orange-50/50 border border-orange-200/80 rounded-xl p-5 flex flex-col shadow-xs">
+                <div className="flex items-center justify-between pb-3 mb-3 border-b border-orange-100">
+                  <div className="flex items-center gap-2 text-orange-900 text-xs font-bold uppercase tracking-wider">
+                    <XCircle className="w-4 h-4 text-orange-600" />
+                    <span>Missing Skills</span>
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded-full bg-white text-orange-900 font-semibold text-xs border border-orange-200 shadow-xs">
                     {finalOutput.missing.length}
                   </span>
                 </div>
-                <p className="text-xs text-slate-400 mb-3">Skills explicitly required by the JD but absent from the resume.</p>
+                <p className="text-xs text-stone-500 mb-3.5">
+                  Required by JD but not present in candidate resume.
+                </p>
                 <div className="flex flex-col gap-2 flex-grow">
                   {finalOutput.missing.length > 0 ? (
                     finalOutput.missing.map((item, idx) => (
                       <div
                         key={idx}
-                        className="px-3 py-2 bg-red-950/30 border border-red-800/30 text-red-200 rounded-lg text-sm font-medium"
+                        className="px-3.5 py-2.5 rounded-lg bg-white border border-orange-200/80 text-orange-950 text-xs sm:text-sm font-medium flex items-center justify-between shadow-xs"
                       >
-                        {item}
+                        <span>{item}</span>
+                        <span className="text-[10px] text-orange-800 font-semibold uppercase tracking-wider bg-orange-50 px-1.5 py-0.5 rounded border border-orange-200">
+                          Gap
+                        </span>
                       </div>
                     ))
                   ) : (
-                    <div className="text-xs text-slate-500 italic py-4 text-center">No missing skills detected!</div>
+                    <div className="text-xs text-stone-400 italic py-6 text-center">
+                      No missing skills detected!
+                    </div>
                   )}
                 </div>
               </div>
 
-              {/* Weak Column */}
-              <div className="bg-slate-950/70 border border-amber-900/30 rounded-xl p-5 flex flex-col">
-                <div className="flex items-center justify-between mb-3 border-b border-amber-950/60 pb-2">
-                  <span className="flex items-center gap-1.5 text-amber-400 font-bold text-sm">
-                    <HelpCircle className="w-4 h-4" /> Weak
-                  </span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-amber-950 text-amber-400 font-mono">
+              {/* Weak Column (Caramel Bronze) */}
+              <div className="bg-amber-50/50 border border-amber-200/80 rounded-xl p-5 flex flex-col shadow-xs">
+                <div className="flex items-center justify-between pb-3 mb-3 border-b border-amber-100">
+                  <div className="flex items-center gap-2 text-amber-900 text-xs font-bold uppercase tracking-wider">
+                    <HelpCircle className="w-4 h-4 text-amber-600" />
+                    <span>Weak Skills</span>
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded-full bg-white text-amber-900 font-semibold text-xs border border-amber-200 shadow-xs">
                     {finalOutput.weak.length}
                   </span>
                 </div>
-                <p className="text-xs text-slate-400 mb-3">Mentioned in passing or listed without project/metric backing.</p>
+                <p className="text-xs text-stone-500 mb-3.5">
+                  Mentioned in passing or lacking project depth.
+                </p>
                 <div className="flex flex-col gap-2 flex-grow">
                   {finalOutput.weak.length > 0 ? (
                     finalOutput.weak.map((item, idx) => (
                       <div
                         key={idx}
-                        className="px-3 py-2 bg-amber-950/30 border border-amber-800/30 text-amber-200 rounded-lg text-sm font-medium"
+                        className="px-3.5 py-2.5 rounded-lg bg-white border border-amber-200/80 text-amber-950 text-xs sm:text-sm font-medium flex items-center justify-between shadow-xs"
                       >
-                        {item}
+                        <span>{item}</span>
+                        <span className="text-[10px] text-amber-800 font-semibold uppercase tracking-wider bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                          Needs Proof
+                        </span>
                       </div>
                     ))
                   ) : (
-                    <div className="text-xs text-slate-500 italic py-4 text-center">No weak skills detected.</div>
+                    <div className="text-xs text-stone-400 italic py-6 text-center">
+                      No weak skills detected.
+                    </div>
                   )}
                 </div>
               </div>
 
-              {/* Strong Column */}
-              <div className="bg-slate-950/70 border border-emerald-900/30 rounded-xl p-5 flex flex-col">
-                <div className="flex items-center justify-between mb-3 border-b border-emerald-950/60 pb-2">
-                  <span className="flex items-center gap-1.5 text-emerald-400 font-bold text-sm">
-                    <CheckCircle2 className="w-4 h-4" /> Strong
-                  </span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 font-mono">
+              {/* Strong Column (Olive Sage) */}
+              <div className="bg-emerald-50/50 border border-emerald-200/80 rounded-xl p-5 flex flex-col shadow-xs">
+                <div className="flex items-center justify-between pb-3 mb-3 border-b border-emerald-100">
+                  <div className="flex items-center gap-2 text-emerald-900 text-xs font-bold uppercase tracking-wider">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>Strong Skills</span>
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded-full bg-white text-emerald-900 font-semibold text-xs border border-emerald-200 shadow-xs">
                     {finalOutput.strong.length}
                   </span>
                 </div>
-                <p className="text-xs text-slate-400 mb-3">Clearly demonstrated matches backed by hands-on experience.</p>
+                <p className="text-xs text-stone-500 mb-3.5">
+                  Clearly demonstrated and backed by hands-on experience.
+                </p>
                 <div className="flex flex-col gap-2 flex-grow">
                   {finalOutput.strong.length > 0 ? (
                     finalOutput.strong.map((item, idx) => (
                       <div
                         key={idx}
-                        className="px-3 py-2 bg-emerald-950/30 border border-emerald-800/30 text-emerald-200 rounded-lg text-sm font-medium"
+                        className="px-3.5 py-2.5 rounded-lg bg-white border border-emerald-200/80 text-emerald-950 text-xs sm:text-sm font-medium flex items-center justify-between shadow-xs"
                       >
-                        {item}
+                        <span>{item}</span>
+                        <span className="text-[10px] text-emerald-800 font-semibold uppercase tracking-wider bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                          Matched
+                        </span>
                       </div>
                     ))
                   ) : (
-                    <div className="text-xs text-slate-500 italic py-4 text-center">No strong skills detected.</div>
+                    <div className="text-xs text-stone-400 italic py-6 text-center">
+                      No strong skills detected.
+                    </div>
                   )}
                 </div>
               </div>
