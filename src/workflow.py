@@ -8,7 +8,13 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import interrupt
 
-from src.state import AgentState, GapAnalysisResult
+from src.state import (
+    AgentState,
+    GapAnalysisResult,
+    InterviewQuestion,
+    Tier1Insights,
+    WeakImprovement,
+)
 from src.llm import execute_llm_with_fallback
 
 load_dotenv()
@@ -43,7 +49,6 @@ def extract_jd_node(state: AgentState) -> dict:
     """Node 1: Extract core requirements, technologies, and experience from the JD."""
     jd_text = state.get("jd_text", "")
 
-    # Attempt LLM extraction (Groq primary / Gemini fallback)
     messages = [
         (
             "system",
@@ -75,7 +80,6 @@ def extract_resume_node(state: AgentState) -> dict:
     """Node 2: Extract demonstrated candidate skills and experience from the resume text."""
     resume_text = state.get("resume_text", "")
 
-    # Attempt LLM extraction (Groq primary / Gemini fallback)
     messages = [
         (
             "system",
@@ -110,7 +114,6 @@ def compare_node(state: AgentState) -> dict:
     jd_text = state.get("jd_text", "")
     resume_text = state.get("resume_text", "")
 
-    # Attempt LLM comparative gap analysis (Groq primary / Gemini fallback)
     messages = [
         (
             "system",
@@ -138,7 +141,6 @@ def compare_node(state: AgentState) -> dict:
     ):
         gap_result = llm_result
     else:
-        # Deterministic heuristic fallback
         jd_set = {s.lower(): s for s in jd_skills}
         cand_set = {s.lower(): s for s in candidate_skills}
         resume_lower = resume_text.lower()
@@ -183,7 +185,6 @@ def hitl_review_node(state: AgentState) -> dict:
         else current_analysis
     )
 
-    # Graph execution suspends here until resumed with Command(resume=...)
     user_feedback = interrupt({
         "review_data": review_data,
         "message": "Human-in-the-Loop Review: Confirm or provide adjustments for the gap analysis.",
@@ -204,21 +205,18 @@ def finalize_node(state: AgentState) -> dict:
     weak = list(gap.weak)
     strong = list(gap.strong)
 
-    # Process user adjustments if provided (e.g., "move Docker to strong", "add K8s to strong")
     if user_feedback and isinstance(user_feedback, str):
         feedback_lower = user_feedback.lower()
-        # Check for moves to strong
         for skill in list(missing + weak):
-            if f"to strong" in feedback_lower and skill.lower() in feedback_lower:
+            if "to strong" in feedback_lower and skill.lower() in feedback_lower:
                 if skill in missing:
                     missing.remove(skill)
                 if skill in weak:
                     weak.remove(skill)
                 if skill not in strong:
                     strong.append(skill)
-        # Check for moves to weak
         for skill in list(missing):
-            if f"to weak" in feedback_lower and skill.lower() in feedback_lower:
+            if "to weak" in feedback_lower and skill.lower() in feedback_lower:
                 missing.remove(skill)
                 if skill not in weak:
                     weak.append(skill)
@@ -231,8 +229,81 @@ def finalize_node(state: AgentState) -> dict:
     return {"final_output": final_result}
 
 
+def generate_insights_node(state: AgentState) -> dict:
+    """Node 6: Generates Tier 1 Weak-to-Strong bullets & Technical Interview Questions."""
+    final_output: Optional[GapAnalysisResult] = state.get("final_output")
+    jd_text = state.get("jd_text", "")
+    resume_text = state.get("resume_text", "")
+
+    if not final_output:
+        final_output = GapAnalysisResult(missing=[], weak=[], strong=[])
+
+    target_skills = list(final_output.weak)
+    if not target_skills and final_output.missing:
+        target_skills = list(final_output.missing)[:2]
+
+    messages = [
+        (
+            "system",
+            "You are an executive technical career coach and hiring lead. Analyze the candidate's skill gaps against the target JD.\n"
+            "Provide two high-value deliverables:\n"
+            "1. 'weak_improvements': For each weak or gap skill, generate 2 concrete, metric-driven resume bullet points demonstrating hands-on impact.\n"
+            "2. 'interview_questions': 3-4 realistic technical interview questions probing the candidate's weak and missing areas, with strategic talking points on how to answer honestly and persuasively.\n"
+            "Keep advice highly actionable, engineering-focused, and tailored.",
+        ),
+        (
+            "human",
+            f"Target Skills to Improve:\n{target_skills}\n\nMissing Skills:\n{final_output.missing}\n\nWeak Skills:\n{final_output.weak}\n\nJob Description:\n{jd_text}\n\nResume Summary:\n{resume_text}",
+        ),
+    ]
+
+    llm_result = execute_llm_with_fallback(
+        messages=messages, structured_schema=Tier1Insights
+    )
+
+    if (
+        llm_result
+        and isinstance(llm_result, Tier1Insights)
+        and (llm_result.weak_improvements or llm_result.interview_questions)
+    ):
+        insights = llm_result
+    else:
+        # Heuristic / Template generator fallback
+        improvements: List[WeakImprovement] = []
+        for s in target_skills:
+            improvements.append(
+                WeakImprovement(
+                    skill=s,
+                    recommended_bullets=[
+                        f"Architected and integrated {s} services into production pipelines, improving system reliability and response latency by 35%.",
+                        f"Designed modular workflows leveraging {s} best practices, reducing maintenance overhead and accelerating release velocity by 40%.",
+                    ],
+                )
+            )
+
+        questions: List[InterviewQuestion] = []
+        for s in (final_output.missing + final_output.weak)[:4]:
+            questions.append(
+                InterviewQuestion(
+                    question=f"The job requires hands-on experience with {s}. Can you describe a complex challenge you encountered with it, or how you would ramp up?",
+                    targeted_skill=s,
+                    suggested_talking_points=(
+                        f"Acknowledge your foundational exposure to {s}, then bridge immediately to your strong experience in related tools. "
+                        f"Detail a concrete proof-of-concept project or personal lab demonstrating your rapid learning velocity."
+                    ),
+                )
+            )
+
+        insights = Tier1Insights(
+            weak_improvements=improvements,
+            interview_questions=questions,
+        )
+
+    return {"insights": insights}
+
+
 def build_gap_analyzer_graph(checkpointer=None):
-    """Constructs the Phase B/C LangGraph state machine with MemorySaver."""
+    """Constructs the Phase B/C/Tier-1 LangGraph state machine with MemorySaver."""
     builder = StateGraph(AgentState)
 
     builder.add_node("extract_jd_node", extract_jd_node)
@@ -240,13 +311,15 @@ def build_gap_analyzer_graph(checkpointer=None):
     builder.add_node("compare_node", compare_node)
     builder.add_node("hitl_review_node", hitl_review_node)
     builder.add_node("finalize_node", finalize_node)
+    builder.add_node("generate_insights_node", generate_insights_node)
 
     builder.add_edge(START, "extract_jd_node")
     builder.add_edge("extract_jd_node", "extract_resume_node")
     builder.add_edge("extract_resume_node", "compare_node")
     builder.add_edge("compare_node", "hitl_review_node")
     builder.add_edge("hitl_review_node", "finalize_node")
-    builder.add_edge("finalize_node", END)
+    builder.add_edge("finalize_node", "generate_insights_node")
+    builder.add_edge("generate_insights_node", END)
 
     if checkpointer is None:
         checkpointer = MemorySaver()

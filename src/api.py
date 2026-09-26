@@ -1,17 +1,19 @@
+import io
 import uuid
 from typing import Optional
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from langgraph.types import Command
+import pypdf
 
-from src.state import AgentState, GapAnalysisResult, InputState
+from src.state import AgentState, GapAnalysisResult, InputState, Tier1Insights
 from src.workflow import build_gap_analyzer_graph
 
 app = FastAPI(
     title="Resume Gap Analyzer Agent",
-    description="LangGraph Human-in-the-Loop Resume vs JD Gap Analysis API",
-    version="1.0.0",
+    description="LangGraph Human-in-the-Loop Resume vs JD Gap Analysis API with Tier 1 Insights",
+    version="1.1.0",
 )
 
 app.add_middleware(
@@ -47,11 +49,42 @@ class FinalResponse(BaseModel):
     thread_id: str
     status: str
     final_output: Optional[GapAnalysisResult] = None
+    insights: Optional[Tier1Insights] = None
+
+
+class UploadResumeResponse(BaseModel):
+    filename: str
+    extracted_text: str
 
 
 @app.get("/health")
 def health_check():
     return {"status": "healthy", "service": "resume-gap-analyzer"}
+
+
+@app.post("/api/upload-resume", response_model=UploadResumeResponse)
+async def upload_resume(file: UploadFile = File(...)):
+    """Extracts plain text from uploaded PDF or plain text resume."""
+    try:
+        contents = await file.read()
+        filename = file.filename or "uploaded_resume.txt"
+
+        if filename.lower().endswith(".pdf"):
+            pdf_stream = io.BytesIO(contents)
+            reader = pypdf.PdfReader(pdf_stream)
+            extracted_pages = [page.extract_text() or "" for page in reader.pages]
+            full_text = "\n\n".join(extracted_pages).strip()
+            if not full_text:
+                raise ValueError("Could not extract readable text from PDF.")
+        else:
+            # Treat as plain text / markdown
+            full_text = contents.decode("utf-8", errors="replace").strip()
+
+        return UploadResumeResponse(filename=filename, extracted_text=full_text)
+    except Exception as e:
+        raise HTTPException(
+            status_code=400, detail=f"Failed to parse resume file: {str(e)}"
+        )
 
 
 @app.post("/api/analyze", response_model=AnalyzeResponse)
@@ -68,6 +101,7 @@ def start_analysis(payload: AnalyzeRequest):
         "gap_analysis": None,
         "user_feedback": None,
         "final_output": None,
+        "insights": None,
     }
 
     try:
@@ -89,7 +123,7 @@ def start_analysis(payload: AnalyzeRequest):
 
 @app.post("/api/resume", response_model=FinalResponse)
 def resume_analysis(payload: ResumeRequest):
-    """Resumes the paused graph from the HITL step with user feedback."""
+    """Resumes the paused graph from the HITL step with user feedback and generates Tier 1 insights."""
     config = {"configurable": {"thread_id": payload.thread_id}}
 
     try:
@@ -100,6 +134,7 @@ def resume_analysis(payload: ResumeRequest):
             thread_id=payload.thread_id,
             status="FINALIZED",
             final_output=final_result.get("final_output"),
+            insights=final_result.get("insights"),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Resume failed: {str(e)}")
